@@ -1,0 +1,120 @@
+---
+title: "Practical Machine Learning - Prediction Assignment"
+author: "XVALDA"
+date: "02 July 2017"
+output: html_document
+---
+
+
+## I. PROJECT INSTRUCTIONS
+
+**Background**
+Using devices such as Jawbone Up, Nike FuelBand, and Fitbit it is now possible to collect a large amount of data about personal activity relatively inexpensively. These type of devices are part of the quantified self movement - a group of enthusiasts who take measurements about themselves regularly to improve their health, to find patterns in their behavior, or because they are tech geeks. One thing that people regularly do is quantify how much of a particular activity they do, but they rarely quantify how well they do it. In this project, your goal will be to use data from accelerometers on the belt, forearm, arm, and dumbell of 6 participants. They were asked to perform barbell lifts correctly and incorrectly in 5 different ways. More information is available from the website here: http://groupware.les.inf.puc-rio.br/har (see the section on the Weight Lifting Exercise Dataset).
+
+**Project Objectives**
+The goal is to predict the manner in which they did the exercise. This is the "classe" variable in the training set. We may use any of the other variables to predict with and describe how we build the model and some elements such as: how we used cross validation, what the expected out of sample error is.
+
+
+## II. DATA 
+
+We load packages: caret, Hmisc, RandomForest, rpart, gbm, plyr and use the include=FALSE command in order not to print the many warnings and comments that would take a lot of space.   
+```{r include=FALSE, cache=FALSE}
+#load packages
+library(Hmisc); library(ggplot2); library(caret); library(randomForest); library(rpart); library(gbm); library(plyr)
+```
+
+We load the data, clean it up my removing irrelevant variables and partition the datasets.  
+
+**1. Load data**  
+```{r}
+#read validation data (this will be used only once at the very end of the project)
+plm_validation <- read.csv("pml-testing.csv")
+#read build data 
+plm_build <- read.csv("pml-training.csv")
+```
+
+**2. Clean up data**  
+We remove predictors that won't help build a prediction model:  
+- Non zero features: we need to predict based on features that are non-zero.  
+- Near zero variance: these features won't help predict either.  
+- Any non-measurement feature like user_name ...  
+
+```{r}
+#Keeping Non-zero features
+NA_vars<-colnames(plm_build)[colSums(is.na(plm_build)) > 0] 
+plm_build<-plm_build[,!(names(plm_build) %in% NA_vars)]
+#Removing near zero variance features
+nzv <-nearZeroVar(plm_build, saveMetrics=TRUE)
+plm_build <- plm_build[,nzv$nzv==FALSE]
+```
+
+Checking variables we are left with:  
+```{r}
+names(plm_build) 
+```
+
+The first 6 features are just identifiers (user_name, timestamps, ...) and can be removed as they won't help predict.  
+
+```{r}
+plm_build <- subset(plm_build, select = -c(1:6)) 
+```
+
+
+**3. Partition data**  
+We partition the data as such:  
+- pml-testing.csv: our validation set, we keep it for the end  
+- pml-training.csv: we partition it into a training set (70%) and testing set (30%)  
+```{r}
+#build training and testing datasets
+set.seed(12345)
+inTrain <- createDataPartition(y=plm_build$classe, p = 0.7, list = FALSE)
+training <- plm_build[inTrain,]; testing <- plm_build[-inTrain,]
+dim(training)
+```
+
+
+##III. BUILD AND TEST MODELS
+We can fit models with 3 different methods, measure accuracy and out of sample error in order to determine which one will be most effective: random forest ("rf"), decision tree ("CART"), and boosting ("GBM", generalized boosted model).  
+
+**1. Cross Validation**  
+Cross validation is done via the cv object we create, cutting the set into k-folds (we choose k=5):  
+```{r}
+cv <- trainControl(method = "cv", number = 5)
+```
+
+**2. Build 3 models: "rf", "rpart", "gbm"**  
+```{r}
+#random forest
+mod_rf <- train(classe ~., method = "rf", data = training, trControl = cv)
+#decision tree
+mod_rpart <- train(classe ~., method = "rpart", data = training, trControl = cv)
+#boosting
+mod_gbm <- train(classe ~., method = "gbm", data = training, trControl = cv, verbose=FALSE)
+```
+
+**3. Predict based on the models**  
+```{r}
+pred_rf <- predict(mod_rf, newdata=testing)
+pred_rpart <- predict(mod_rpart, newdata=testing)
+pred_gbm <- predict(mod_gbm, newdata=testing)
+```
+
+**4. Performance of each model with confusion matrices**  
+```{r}
+cm_rf <- confusionMatrix(pred_rf, testing$classe)
+cm_rpart <- confusionMatrix(pred_rpart, testing$classe)
+cm_gbm <- confusionMatrix(pred_gbm, testing$classe)
+#Showing accuracy results
+cm_rf$overall[1]
+cm_rpart$overall[1]
+cm_gbm$overall[1]
+```
+
+**The best accuracy is obtained by the random forest algorithm with a very high rate of 98.88%.**  
+**Out of sample error rate is: 1.12%**  
+
+## IV. TEST ON VALIDATION DATA
+```{r}
+predict(mod_rf, plm_validation)
+```
+
